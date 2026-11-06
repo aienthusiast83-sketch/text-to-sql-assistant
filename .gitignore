@@ -1,0 +1,15 @@
+# Secrets: never upload
+.env
+
+# Python virtual environment and auto-generated files
+venv/
+__pycache__/
+.DS_Store
+
+# Database: download it yourself (see README)
+Chinook_Sqlite.sqlite
+Chinook_Sqlite.sqlite-journal
+
+# Personal notes and the upload staging folder
+*.pdf
+github_upload/
