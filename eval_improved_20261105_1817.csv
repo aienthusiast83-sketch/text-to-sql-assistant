@@ -1,0 +1,107 @@
+id,question,verdict,status,attempts,tokens_in,tokens_out,ai_sql
+1,How many customers are there?,PASS,ok,1,2899,26,SELECT COUNT(*) AS customer_count FROM Customer;
+2,Which countries do customers come from?,PASS,ok,1,2902,43,SELECT DISTINCT Country FROM Customer WHERE Country IS NOT NULL ORDER BY Country;
+3,How many tracks are in the database?,PASS,ok,1,2902,24,SELECT COUNT(*) AS track_count FROM Track;
+4,List all genres.,PASS,ok,1,2897,20,"SELECT GenreId, Name FROM Genre;"
+5,What is the total sales revenue?,PASS,ok,1,2902,41,"SELECT ROUND(SUM(Total), 2) AS TotalSalesRevenue FROM Invoice;"
+6,Top 5 countries by revenue,PASS,ok,1,2903,69,"SELECT BillingCountry AS Country, SUM(Total) AS Revenue FROM Invoice GROUP BY BillingCountry ORDER BY Revenue DESC LIMIT 5"
+7,Top 5 artists by revenue,PASS,ok,1,2903,679,"WITH artist_revenue AS (
+SELECT ar.ArtistId, ar.Name, SUM(il.UnitPrice * il.Quantity) AS Revenue
+FROM InvoiceLine il
+JOIN Track t ON il.TrackId = t.TrackId
+JOIN Album al ON t.AlbumId = al.AlbumId
+JOIN Artist ar ON al.ArtistId = ar.ArtistId
+GROUP BY ar.ArtistId, ar.Name
+),
+ranked AS (
+SELECT ArtistId, Name, Revenue, RANK() OVER (ORDER BY Revenue DESC) AS rnk
+FROM artist_revenue
+)
+SELECT Name, Revenue
+FROM ranked
+WHERE rnk <= 5
+ORDER BY Revenue DESC"
+8,Which album has the most tracks?,PASS,ok,1,2902,399,"SELECT a.Title, COUNT(t.TrackId) AS TrackCount FROM Album a JOIN Track t ON t.AlbumId = a.AlbumId GROUP BY a.AlbumId, a.Title HAVING COUNT(t.TrackId) = (SELECT MAX(cnt) FROM (SELECT COUNT(*) AS cnt FROM Track WHERE AlbumId IS NOT NULL GROUP BY AlbumId));"
+9,Revenue by year,PASS,ok,1,2898,75,"SELECT STRFTIME('%Y', InvoiceDate) AS Year, ROUND(SUM(Total), 2) AS Revenue FROM Invoice GROUP BY Year ORDER BY Year;"
+10,Average invoice amount per country,PASS,ok,1,2901,53,"SELECT BillingCountry, AVG(Total) AS AverageInvoiceAmount FROM Invoice GROUP BY BillingCountry;"
+11,Number of tracks per genre,PASS,ok,1,2901,107,"SELECT g.GenreId, g.Name AS Genre, COUNT(t.TrackId) AS TrackCount FROM Genre g LEFT JOIN Track t ON t.GenreId = g.GenreId GROUP BY g.GenreId, g.Name ORDER BY TrackCount DESC;"
+12,Which sales rep generated the most revenue?,PASS,ok,1,2906,607,"WITH rep_revenue AS (
+SELECT e.EmployeeId, e.FirstName, e.LastName, SUM(i.Total) AS Revenue
+FROM Employee e
+JOIN Customer c ON c.SupportRepId = e.EmployeeId
+JOIN Invoice i ON i.CustomerId = c.CustomerId
+GROUP BY e.EmployeeId, e.FirstName, e.LastName
+),
+ranked AS (
+SELECT EmployeeId, FirstName, LastName, Revenue,
+RANK() OVER (ORDER BY Revenue DESC) AS rnk
+FROM rep_revenue
+)
+SELECT EmployeeId, FirstName, LastName, Revenue
+FROM ranked
+WHERE rnk = 1;"
+13,Customers who spent more than $45 in total,PASS,ok,1,2905,332,"SELECT c.CustomerId, c.FirstName, c.LastName, SUM(i.Total) AS TotalSpent FROM Customer c JOIN Invoice i ON c.CustomerId = i.CustomerId GROUP BY c.CustomerId, c.FirstName, c.LastName HAVING SUM(i.Total) > 45 ORDER BY TotalSpent DESC;"
+14,"Longest track, in minutes",PASS,ok,1,2901,356,"SELECT Name, Milliseconds / 60000.0 AS Minutes FROM (SELECT Name, Milliseconds, RANK() OVER (ORDER BY Milliseconds DESC) AS rnk FROM Track) WHERE rnk = 1;"
+15,Top genre in each country by revenue,PASS,ok,1,2903,705,"WITH genre_rev AS (
+SELECT i.BillingCountry AS Country, g.Name AS Genre, SUM(il.UnitPrice*il.Quantity) AS Revenue
+FROM InvoiceLine il
+JOIN Invoice i ON il.InvoiceId = i.InvoiceId
+JOIN Track t ON il.TrackId = t.TrackId
+JOIN Genre g ON t.GenreId = g.GenreId
+GROUP BY i.BillingCountry, g.Name
+),
+ranked AS (
+SELECT Country, Genre, Revenue, RANK() OVER (PARTITION BY Country ORDER BY Revenue DESC) AS rnk FROM genre_rev
+)
+SELECT Country, Genre, Revenue FROM ranked WHERE rnk = 1 ORDER BY Country;"
+16,Month-over-month revenue change in the latest year,FAIL,ok,1,2907,937,"WITH monthly AS (
+  SELECT strftime('%Y-%m', InvoiceDate) AS month, SUM(Total) AS revenue
+  FROM Invoice
+  GROUP BY month
+),
+with_change AS (
+  SELECT month,
+         revenue,
+         revenue - LAG(revenue) OVER (ORDER BY month) AS mom_change,
+         ROUND((revenue - LAG(revenue) OVER (ORDER BY month)) * 100.0 / LAG(revenue) OVER (ORDER BY month), 2) AS mom_pct
+  FROM monthly
+)
+SELECT month,
+       ROUND(revenue, 2) AS revenue,
+       ROUND(mom_change, 2) AS mom_change,
+       mom_pct
+FROM with_change
+WHERE substr(month, 1, 4) = (SELECT strftime('%Y', MAX(InvoiceDate)) FROM Invoice)
+ORDER BY month;"
+17,Customers who never bought a Rock track,PASS,ok,1,2904,419,"SELECT c.CustomerId, c.FirstName, c.LastName, c.Email
+FROM Customer c
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM Invoice i
+    JOIN InvoiceLine il ON il.InvoiceId = i.InvoiceId
+    JOIN Track t ON t.TrackId = il.TrackId
+    JOIN Genre g ON g.GenreId = t.GenreId
+    WHERE i.CustomerId = c.CustomerId
+      AND g.Name = 'Rock'
+);"
+18,Each sales rep's percentage share of total revenue,PASS,ok,1,2908,616,"SELECT e.EmployeeId, e.FirstName || ' ' || e.LastName AS SalesRep, SUM(i.Total) AS Revenue, ROUND(100.0 * SUM(i.Total) / (SELECT SUM(Total) FROM Invoice), 2) AS PercentShare FROM Employee e JOIN Customer c ON c.SupportRepId = e.EmployeeId JOIN Invoice i ON i.CustomerId = c.CustomerId GROUP BY e.EmployeeId, e.FirstName, e.LastName ORDER BY Revenue DESC;"
+19,Customers who made a purchase in every year,PASS,ok,1,2904,514,"WITH all_years AS (SELECT DISTINCT strftime('%Y', InvoiceDate) AS y FROM Invoice), cust_years AS (SELECT CustomerId, COUNT(DISTINCT strftime('%Y', InvoiceDate)) AS yc FROM Invoice GROUP BY CustomerId) SELECT c.CustomerId, c.FirstName, c.LastName FROM Customer c JOIN cust_years cy ON c.CustomerId = cy.CustomerId WHERE cy.yc = (SELECT COUNT(*) FROM all_years);"
+20,Who are our best customers?,REVIEW,ok,1,2900,441,"WITH customer_spend AS (
+    SELECT c.CustomerId,
+           c.FirstName,
+           c.LastName,
+           c.Email,
+           SUM(i.Total) AS TotalSpent
+    FROM Customer c
+    JOIN Invoice i ON i.CustomerId = c.CustomerId
+    GROUP BY c.CustomerId, c.FirstName, c.LastName, c.Email
+),
+ranked AS (
+    SELECT *,
+           RANK() OVER (ORDER BY TotalSpent DESC) AS SpendRank
+    FROM customer_spend
+)
+SELECT CustomerId, FirstName, LastName, Email, ROUND(TotalSpent, 2) AS TotalSpent, SpendRank
+FROM ranked
+WHERE SpendRank <= 10
+ORDER BY SpendRank, LastName, FirstName;"
